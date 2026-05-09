@@ -114,3 +114,7 @@ of `bayer_dither_to_xbm`, then add a branch to `dither_to_xbm`. Good
 candidates: Jarvis-Judice-Ninke (larger error kernel than FS), Atkinson
 (Apple II style, washes out highlights), or blue noise (stateless but
 better than Bayer).
+
+# Acknowledgements
+
+* AI-assisted development using Anthropic Claude Opus 4.7.
