@@ -28,7 +28,7 @@ SCREEN_W = 400
 SCREEN_H = 240
 GAP = 20
 
-DEFAULT_SIZE = 120
+DEFAULT_SIZE = 80
 
 # Clamp so two panels plus the gap fit horizontally with margin to spare.
 # Two panels + gap must fit in SCREEN_W with at least 20px on each side.

@@ -26,7 +26,7 @@ SCREEN_W = 400
 SCREEN_H = 240
 
 # Defaults applied when args are missing or malformed
-DEFAULT_SIZE = 120
+DEFAULT_SIZE = 80
 DEFAULT_MODE = "fs"
 
 # Clamps. Field is square, so the height limit (240) bounds it.

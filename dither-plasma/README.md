@@ -33,10 +33,14 @@ r plasma_demo 120 bayer       # 120x120 starting in Bayer mode
 r dither_compare              # 80x80 panels, FS vs Bayer side by side
 r dither_compare 40           # 40x40 panels — fast shim iteration
 r dither_compare 120          # 120x120 panels — largest practical comparison
+r fields_demo                 # 80x80, cycle through plasma/metaballs/tunnel
+r fields_demo 40              # 40x40 — fast shim iteration
+r fields_demo 120 bayer       # 120x120 starting in Bayer mode
 ```
 
-In `plasma_demo`, press space to toggle between FS and Bayer live. Touch
-the bottom-right touchpad button to exit either demo.
+In `plasma_demo` and `fields_demo`, press space to toggle between FS and
+Bayer live. In `fields_demo`, use left/right arrow keys to cycle between
+field types. Touch the bottom-right touchpad button to exit any demo.
 
 Recommended sizes:
 - **40×40** — comfortable on the shim for layout and behavior iteration
