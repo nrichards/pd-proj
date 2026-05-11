@@ -14,6 +14,12 @@
 #   gray = bytearray(w * h)   # fill with 0..255 intensity values
 #   draw_gray_rect(v, 40, 40, w, h, gray, mode="fs")
 
+# Package version — single source of truth for the whole collection
+# (dither + fields + effects + bluenoise_tile). Bump on every release
+# per CHANGELOG.md. Other modules import this if they need to display
+# or log it.
+__version__ = "0.4.0"
+
 # 4x4 Bayer ordered dither matrix (threshold values 0..255).
 # Same matrix used in pngreader.py so results are consistent.
 _BAYER = bytes([

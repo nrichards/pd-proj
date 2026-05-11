@@ -197,3 +197,21 @@ better than Bayer).
 # Acknowledgements
 
 * AI-assisted development using Anthropic Claude Opus 4.7.
+
+## Versioning
+
+The current version is declared in one place: `__version__` in
+`lib/dither.py`. Apps can `from dither import __version__` if they want
+to display or log it.
+
+The project uses [Semantic Versioning](https://semver.org/):
+
+- **MAJOR** — breaking changes to the public API (function signatures,
+  module names, behavior contracts)
+- **MINOR** — new features that don't break existing callers (new dither
+  modes, new field types, new effects)
+- **PATCH** — bug fixes that don't change behavior for correct callers
+
+When making a release, bump `__version__` in `dither.py` and add a new
+section to `CHANGELOG.md` describing what changed. See `CHANGELOG.md`
+for the historical record and the format to follow.
