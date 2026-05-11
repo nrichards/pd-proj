@@ -33,6 +33,15 @@ DEFAULT_MODE = "fs"
 MIN_SIZE = 16
 MAX_SIZE = SCREEN_H
 
+# Dither modes cycled by space key. Adding a new mode? Add it in dither.py
+# and append it here.
+MODES = ("fs", "bayer", "blue")
+
+
+def _next_mode(current):
+    i = MODES.index(current) if current in MODES else 0
+    return MODES[(i + 1) % len(MODES)]
+
 
 def _parse_args(args):
     """Pull (size, mode) from the args list passed to main().
@@ -68,7 +77,7 @@ def _parse_args(args):
 
     if len(parts) >= 2:
         m = parts[1].lower()
-        if m in ("fs", "bayer"):
+        if m in MODES:
             mode = m
 
     return size, mode
@@ -99,10 +108,10 @@ class PlasmaDemo:
             self.v.callback(None)
             return
 
-        # Space key toggles dither mode
+        # Space key cycles dither mode
         n, data = self.v.read_nb(4)
         if n > 0 and b" " in data:
-            self.mode = "bayer" if self.mode == "fs" else "fs"
+            self.mode = _next_mode(self.mode)
 
         # Advance one frame of the field
         gray = self.plasma.step()

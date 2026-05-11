@@ -34,6 +34,15 @@ DEFAULT_MODE = "fs"
 MIN_SIZE = 16
 MAX_SIZE = SCREEN_H
 
+# Dither modes cycled by space key. Adding a new mode? Add it in dither.py
+# and append it here.
+MODES = ("fs", "bayer", "blue")
+
+
+def _next_mode(current):
+    i = MODES.index(current) if current in MODES else 0
+    return MODES[(i + 1) % len(MODES)]
+
 # Field registry: (display name, factory). Each factory takes (w, h) and
 # returns an object with a .step() method returning a grayscale bytearray.
 # Adding a new field is one line — define it in fields.py, then append a
@@ -72,7 +81,7 @@ def _parse_args(args):
 
     if len(parts) >= 2:
         m = parts[1].lower()
-        if m in ("fs", "bayer"):
+        if m in MODES:
             mode = m
 
     return size, mode
@@ -129,7 +138,7 @@ class FieldsDemo:
         while i < n:
             b = data[i:i+1]
             if b == b" ":
-                self.mode = "bayer" if self.mode == "fs" else "fs"
+                self.mode = _next_mode(self.mode)
                 i += 1
             elif b == b"\x1b" and i + 2 < n:
                 seq = data[i:i+3]

@@ -72,6 +72,32 @@ if _USE_VIPER:
             y += 1
 
     @micropython.viper
+    def _blue_dither(gray, xbm, w: int, h: int, btab, tile_size: int, mask: int):
+        # Stateless threshold per pixel against a blue noise tile.
+        # Same structure as Bayer but with a larger tile (typically 64x64)
+        # whose threshold values are arranged to give blue spectral
+        # character — energy in high spatial frequencies, none at low.
+        # The result looks like fine film grain rather than crosshatch.
+        #
+        # mask = tile_size - 1 (precomputed, requires power-of-2 tile size)
+        g  = ptr8(gray)
+        x8 = ptr8(xbm)
+        bt = ptr8(btab)
+        xs: int = (w + 7) >> 3
+
+        y: int = 0
+        while y < h:
+            ty: int = (y & mask) * tile_size
+            xr: int = y * xs
+            gr: int = y * w
+            x: int = 0
+            while x < w:
+                if int(g[gr + x]) > int(bt[ty + (x & mask)]):
+                    x8[xr + (x >> 3)] = int(x8[xr + (x >> 3)]) | (0x80 >> (x & 7))
+                x += 1
+            y += 1
+
+    @micropython.viper
     def _fs_row(gray_row, xbm_row, w: int, ec, en):
         # Single row of Floyd-Steinberg dithering.
         # gray_row: ptr8 to this row's grayscale values (w bytes)
@@ -174,6 +200,16 @@ else:
                 if gray[gr + x] > bayer[by + (x & 3)]:
                     xbm[xr + (x >> 3)] |= 0x80 >> (x & 7)
 
+    def _blue_dither(gray, xbm, w, h, btab, tile_size, mask):
+        xs = (w + 7) >> 3
+        for y in range(h):
+            ty = (y & mask) * tile_size
+            xr = y * xs
+            gr = y * w
+            for x in range(w):
+                if gray[gr + x] > btab[ty + (x & mask)]:
+                    xbm[xr + (x >> 3)] |= 0x80 >> (x & 7)
+
     def _fs_row(gray_row, xbm_row, w, ec, en):
         # ec and en are array.array('h') signed-int16 arrays of
         # length w+2. Index x+1 holds the error for pixel x; index 0
@@ -218,6 +254,44 @@ def bayer_dither_to_xbm(gray, w, h):
     xs = (w + 7) >> 3
     xbm = bytearray(xs * h)
     _bayer_dither(gray, xbm, w, h, _BAYER)
+    return xbm
+
+
+# Blue noise tile is lazy-loaded on first use, so apps that never use
+# blue dithering don't pay the import cost. Once loaded, the tile is
+# cached in module globals.
+_BLUE_TILE = None
+_BLUE_TILE_SIZE = 0
+_BLUE_TILE_MASK = 0
+
+
+def _ensure_blue_tile():
+    global _BLUE_TILE, _BLUE_TILE_SIZE, _BLUE_TILE_MASK
+    if _BLUE_TILE is None:
+        from bluenoise_tile import TILE, TILE_SIZE
+        if (TILE_SIZE & (TILE_SIZE - 1)) != 0:
+            raise ValueError("blue noise tile size must be a power of 2")
+        _BLUE_TILE = TILE
+        _BLUE_TILE_SIZE = TILE_SIZE
+        _BLUE_TILE_MASK = TILE_SIZE - 1
+
+
+def blue_dither_to_xbm(gray, w, h):
+    """Convert an 8-bit grayscale bytearray to a 1-bit MSB-first XBM buffer
+    using a precomputed blue noise threshold tile.
+
+    Same speed as Bayer (one threshold compare per pixel) but visually
+    much closer to FS — energy is concentrated in high spatial frequencies
+    where the eye has poor acuity, so the dither pattern reads as fine
+    film grain rather than a geometric crosshatch. Unlike FS, it's
+    stateless and parallelizable.
+
+    The tile is lazy-loaded from bluenoise_tile.py on first call.
+    """
+    _ensure_blue_tile()
+    xs = (w + 7) >> 3
+    xbm = bytearray(xs * h)
+    _blue_dither(gray, xbm, w, h, _BLUE_TILE, _BLUE_TILE_SIZE, _BLUE_TILE_MASK)
     return xbm
 
 
@@ -276,12 +350,16 @@ def fs_dither_to_xbm(gray, w, h, err_a=None, err_b=None):
 def dither_to_xbm(gray, w, h, mode="fs"):
     """Dispatch to the requested dither algorithm.
 
-    mode: "fs" for Floyd-Steinberg, "bayer" for Bayer ordered dither.
+    mode: "fs"    — Floyd-Steinberg error diffusion (organic, slowest)
+          "bayer" — 4x4 Bayer ordered (geometric, fastest, smallest tile)
+          "blue"  — blue noise threshold (film grain, fast, 4 KB tile)
     """
     if mode == "fs":
         return fs_dither_to_xbm(gray, w, h)
     elif mode == "bayer":
         return bayer_dither_to_xbm(gray, w, h)
+    elif mode == "blue":
+        return blue_dither_to_xbm(gray, w, h)
     else:
         raise ValueError("unknown dither mode: " + repr(mode))
 
@@ -297,7 +375,7 @@ def draw_gray_rect(v, x, y, w, h, gray, mode="fs"):
     x, y: top-left coordinates on screen
     w, h: dimensions of the grayscale region
     gray: bytearray of length w * h, 0..255 intensity
-    mode: "fs" or "bayer"
+    mode: "fs", "bayer", or "blue"
     """
     xbm = dither_to_xbm(gray, w, h, mode=mode)
     v.draw_xbm(x, y, w, h, xbm)
