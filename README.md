@@ -10,7 +10,7 @@ Various projects for PocketDeck
   ![metaballs](doc/metaballs.png)
   * lissajous:
   ![lissajous](doc/lissajous.png)
-
+* [city-app](city-app) - demoscene-style infinite procedural city for the Pocket Deck
 
 
 # Reference
