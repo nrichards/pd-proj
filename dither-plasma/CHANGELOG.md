@@ -17,6 +17,18 @@ releasing.
 _Nothing yet._
 
 
+## [0.4.1] — 2026-05-12
+
+### Fixed
+- Demos crashed-soft on device with "Comparison between bytes and str"
+  warnings when handling keyboard input. The `vscreen.read_nb()`
+  function returns `str` on the device and `bytes` on the shim — the
+  same name with a different type. Input handlers in `plasma_demo`,
+  `fields_demo`, and `lissajous_demo` now normalize the return value
+  to bytes via `.encode("ascii")` when needed, so comparisons work
+  correctly on both platforms.
+
+
 ## [0.4.0] — 2026-05-11
 
 ### Added
@@ -92,6 +104,7 @@ _Nothing yet._
 
 
 [Unreleased]: #unreleased
+[0.4.1]: #041--2026-05-12
 [0.4.0]: #040--2026-05-11
 [0.3.0]: #030--2026-05-11
 [0.2.0]: #020--2026-05-11

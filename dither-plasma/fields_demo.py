@@ -131,6 +131,12 @@ class FieldsDemo:
         if n <= 0:
             return False
 
+        # read_nb returns str on device, bytes on shim. Normalize to bytes
+        # so the comparisons below work on both platforms without
+        # triggering MicroPython's bytes/str comparison warning.
+        if isinstance(data, str):
+            data = data.encode("ascii")
+
         # Walk the input bytes. Escape sequences are 3 bytes; everything
         # else is single-byte. We don't try to reassemble across read
         # boundaries — for an interactive UI this is fine.

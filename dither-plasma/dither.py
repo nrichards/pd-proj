@@ -18,7 +18,7 @@
 # (dither + fields + effects + bluenoise_tile). Bump on every release
 # per CHANGELOG.md. Other modules import this if they need to display
 # or log it.
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 # 4x4 Bayer ordered dither matrix (threshold values 0..255).
 # Same matrix used in pngreader.py so results are consistent.

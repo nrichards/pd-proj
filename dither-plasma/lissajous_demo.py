@@ -134,6 +134,12 @@ class LissajousDemo:
         if n <= 0:
             return False
 
+        # read_nb returns str on device, bytes on shim. Normalize to bytes
+        # so the comparisons below work on both platforms without
+        # triggering MicroPython's bytes/str comparison warning.
+        if isinstance(data, str):
+            data = data.encode("ascii")
+
         i = 0
         while i < n:
             b = data[i:i+1]

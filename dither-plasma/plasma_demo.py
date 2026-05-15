@@ -108,10 +108,14 @@ class PlasmaDemo:
             self.v.callback(None)
             return
 
-        # Space key cycles dither mode
+        # Space key cycles dither mode.
+        # read_nb returns str on device, bytes on shim — normalize.
         n, data = self.v.read_nb(4)
-        if n > 0 and b" " in data:
-            self.mode = _next_mode(self.mode)
+        if n > 0:
+            if isinstance(data, str):
+                data = data.encode("ascii")
+            if b" " in data:
+                self.mode = _next_mode(self.mode)
 
         # Advance one frame of the field
         gray = self.plasma.step()
