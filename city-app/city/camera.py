@@ -1,17 +1,17 @@
 """
-Camera with Catmull-Rom spline path and look-at view matrix.
+Camera with Catmull-Rom spline path and tangent-tracking look-at.
 
-The camera moves along a waypoint path interpolated as a uniform
-Catmull-Rom spline. Waypoints are generated lazily as the camera
-advances, so the path is effectively infinite. Travel is parameterized
-by chord length (so the camera's actual world-space speed matches
-self.speed, not a per-segment parametric rate), and speed is
-altitude-modulated: slower when low (weaving), faster when high
-(sweeping).
+The camera moves through the city along a smooth forward path:
+  - Net travel along +X (the "boulevard direction")
+  - Sinusoidal Z weave so the camera meanders between building columns
+  - Altitude rising/falling on a smooth low->high->low cycle
+  - Speed modulated by altitude (slow when low, fast when high)
+  - Look-at target on a second spline running ahead of the camera,
+    biased slightly downward so the city stays in frame
 
-For milestone 1, look-at target is always world origin so the
-reference cube stays centered. A separate look-at spline will be
-introduced in milestone 2 when there's a real world to look at.
+Waypoints are generated lazily as the camera advances, so the path is
+effectively infinite. Travel is parameterized by chord length so
+self.speed maps directly to world units per second.
 """
 
 import math
@@ -20,17 +20,8 @@ import math
 def _catmull_rom(p0, p1, p2, p3, t):
   """Uniform Catmull-Rom interpolation between p1 and p2.
 
-  Returns (x, y, z) at parameter t in [0, 1]. p0..p3 are 3-tuples.
-  The curve passes through p1 (at t=0) and p2 (at t=1), with tangents
-  derived from p0->p2 and p1->p3; this makes the path C1-continuous
-  at every waypoint.
-
-  Expanded into basis functions per point:
-    P(t) = b0*p0 + b1*p1 + b2*p2 + b3*p3
-    b0 = -0.5 t^3 + t^2 - 0.5 t
-    b1 =  1.5 t^3 - 2.5 t^2 + 1
-    b2 = -1.5 t^3 + 2 t^2 + 0.5 t
-    b3 =  0.5 t^3 - 0.5 t^2
+  See milestone 1 notes for the basis-function derivation. Curve passes
+  through p1 (t=0) and p2 (t=1), C1-continuous at every waypoint.
   """
   t2 = t * t
   t3 = t2 * t
@@ -51,52 +42,81 @@ def _chord_len(a, b):
 
 
 class Camera:
-  """Spline-driven camera. Call update(dt) each frame, then view_matrix(out)."""
+  """Spline-driven forward-flight camera.
 
-  # Camera path: orbital radius and altitude band
-  RADIUS = 180.0
-  ALT_LOW = 12.0
-  ALT_HIGH = 120.0
-  ANG_PER_WP = 0.40   # XZ orbit advance per waypoint, radians
-  ALT_PERIOD = 6      # waypoints per low->high->low altitude cycle
+  Call update(dt) each frame, then view_matrix(out) to write the 4x4
+  world->camera transform.
+  """
+
+  # Path geometry (world units = meters)
+  STEP_X = 80.0        # waypoint-to-waypoint advance along +X
+  WEAVE_AMP = 35.0     # sinusoidal Z weave amplitude
+  WEAVE_PERIOD = 4     # waypoints per full sine cycle of weave
+
+  # Altitude band
+  ALT_LOW = 14.0
+  ALT_HIGH = 130.0
+  ALT_PERIOD = 8       # waypoints per altitude cycle (longer than weave)
 
   # Speed (world units per second), modulated by altitude
-  SPEED_LOW = 15.0
-  SPEED_HIGH = 50.0
+  SPEED_LOW = 18.0
+  SPEED_HIGH = 55.0
+
+  # Look-at target lookahead distance along the path
+  LOOKAHEAD = 1.5      # in waypoints
+  TARGET_DOWN_BIAS = 12.0  # target dropped by this much in world Y
 
   def __init__(self):
     self.pos = [0.0, 0.0, 0.0]
     self.target = [0.0, 0.0, 0.0]
+    self.forward = [0.0, 0.0, 1.0]  # for chunk-grid visibility culling
     self.speed = self.SPEED_LOW
 
-    # Rolling 4-waypoint window. The active segment runs _wp[1] -> _wp[2];
-    # _wp[0] and _wp[3] are the tangent anchors required by Catmull-Rom.
+    # Rolling 4-waypoint window for the position spline.
+    # Active segment runs _wp[1] -> _wp[2]; _wp[0] / _wp[3] anchor tangents.
     self._wp = []
     self._wp_idx = 0
     for i in range(4):
       self._wp.append(self._gen_waypoint(i))
       self._wp_idx += 1
 
-    self._seg_dist = 0.0  # how far along the current segment we've traveled
+    self._seg_dist = 0.0
     self._seg_len = _chord_len(self._wp[1], self._wp[2])
 
-    # Prime pos/target for first frame
+    # Prime first frame so pos/target/forward are valid before render.
     self.update(0.0)
 
   def _gen_waypoint(self, idx):
-    """Deterministic waypoint generation. Replace this in milestone 2+
-    when waypoints need to avoid buildings."""
-    angle = idx * self.ANG_PER_WP
-    # Altitude on a smooth low->high->low cosine cycle.
+    """Deterministic waypoint along the city flight path."""
+    x = idx * self.STEP_X
+    # Weave on a sine
+    z = self.WEAVE_AMP * math.sin(idx * (2.0 * math.pi / self.WEAVE_PERIOD))
+    # Altitude on a smooth (0..1) cosine cycle
     phase = (idx % self.ALT_PERIOD) * (2.0 * math.pi / self.ALT_PERIOD)
-    mix = 0.5 - 0.5 * math.cos(phase)  # 0..1, smooth
+    mix = 0.5 - 0.5 * math.cos(phase)
     y = self.ALT_LOW + (self.ALT_HIGH - self.ALT_LOW) * mix
-    x = self.RADIUS * math.cos(angle)
-    z = self.RADIUS * math.sin(angle)
     return (x, y, z)
 
+  def _target_at(self, wp_progress):
+    """Compute the look-at target at fractional waypoint index wp_progress.
+
+    Samples the path LOOKAHEAD waypoints ahead and drops Y by the
+    downward bias. Uses the same Catmull-Rom window logic as the
+    position spline, advancing by LOOKAHEAD into the future. To avoid
+    rebuilding a parallel waypoint stream, we just call _gen_waypoint
+    at integer offsets around the look point.
+    """
+    look = wp_progress + self.LOOKAHEAD
+    base = int(math.floor(look))
+    t = look - base
+    p0 = self._gen_waypoint(base - 1)
+    p1 = self._gen_waypoint(base)
+    p2 = self._gen_waypoint(base + 1)
+    p3 = self._gen_waypoint(base + 2)
+    x, y, z = _catmull_rom(p0, p1, p2, p3, t)
+    return (x, y - self.TARGET_DOWN_BIAS, z)
+
   def _update_speed(self):
-    """Update self.speed based on current altitude band."""
     alt = self.pos[1]
     band = (alt - self.ALT_LOW) / (self.ALT_HIGH - self.ALT_LOW)
     if band < 0.0: band = 0.0
@@ -105,13 +125,13 @@ class Camera:
 
   def update(self, dt):
     if dt > 0.1:
-      dt = 0.1  # clamp big stalls; lose motion rather than lurch
+      dt = 0.1
 
     self._update_speed()
     self._seg_dist += self.speed * dt
 
-    # Advance to next segment as needed. Guard against degenerate
-    # (near-zero-length) segments to avoid an infinite loop.
+    # Advance segments. Safety bound prevents infinite loop on degenerate
+    # segments (which shouldn't happen with this path but guards future me).
     safety = 0
     while (self._seg_dist >= self._seg_len and
            self._seg_len > 1e-3 and safety < 16):
@@ -129,19 +149,32 @@ class Camera:
     self.pos[1] = y
     self.pos[2] = z
 
-    # Milestone 1: always look at origin (the reference cube).
-    self.target[0] = 0.0
-    self.target[1] = 0.0
-    self.target[2] = 0.0
+    # Look-at target: lookahead along the same path, biased down.
+    # The "current waypoint progress" is (idx of _wp[1]) + t. We
+    # tracked _wp_idx as one past the last appended, so _wp[1] sits at
+    # _wp_idx - 3 in absolute waypoint indexing.
+    wp_progress = (self._wp_idx - 3) + t
+    tx, ty, tz = self._target_at(wp_progress)
+    self.target[0] = tx
+    self.target[1] = ty
+    self.target[2] = tz
+
+    # Forward vector for chunk-grid culling.
+    fx = tx - x; fy = ty - y; fz = tz - z
+    flen = math.sqrt(fx*fx + fy*fy + fz*fz)
+    if flen > 1e-6:
+      inv = 1.0 / flen
+      # Only XZ components used for culling
+      self.forward[0] = fx * inv
+      self.forward[1] = fy * inv
+      self.forward[2] = fz * inv
 
   def view_matrix(self, out):
-    """Write the row-major 4x4 world->camera view matrix into `out`
-    (a 16-element float array).
+    """Write row-major 4x4 world->camera matrix into `out` (16 floats).
 
     Camera convention matches project_3d_indexed: +Z forward, +X right,
-    +Y up (left-handed). World up is +Y. The matrix transforms world-
-    space points into camera space such that points the camera looks at
-    end up at positive Z.
+    +Y up. The matrix transforms world-space points into camera space
+    such that points the camera looks at have positive Z.
     """
     ex = self.pos[0]; ey = self.pos[1]; ez = self.pos[2]
     tx = self.target[0]; ty = self.target[1]; tz = self.target[2]
@@ -158,9 +191,8 @@ class Camera:
     # right = normalize(cross(world_up, forward))
     # cross((0,1,0), (fx,fy,fz)) = (fz, 0, -fx)
     rx = fz; ry = 0.0; rz = -fx
-    rlen = math.sqrt(rx*rx + rz*rz)  # ry is always 0 here
+    rlen = math.sqrt(rx*rx + rz*rz)
     if rlen < 1e-6:
-      # Camera looking straight up or down; pick a stable right.
       rx = 1.0; ry = 0.0; rz = 0.0
     else:
       inv = 1.0 / rlen
@@ -171,9 +203,6 @@ class Camera:
     uy = fz*rx - fx*rz
     uz = fx*ry - fy*rx
 
-    # Row-major view matrix (world->camera).
-    # Rows are the camera basis vectors expressed in world space, with
-    # the translation column = -(basis . eye).
     out[0]  = rx;  out[1]  = ry;  out[2]  = rz
     out[3]  = -(rx*ex + ry*ey + rz*ez)
     out[4]  = ux;  out[5]  = uy;  out[6]  = uz
